@@ -64,6 +64,16 @@ func existingPath(paths map[string]string, suffix string) Path {
 	// localize the paths based on the root mount dest for nested cgroups
 	for n, p := range paths {
 		dest, err := getCgroupDestination(n)
+		if err == ErrNoCgroupMountDestination && p == "/" {
+			// If a cgroup hierarchy exists and was once mounted, but then unmounted,
+			// then any process that existed at the time will list that cgroup hierarchy
+			// in its /proc/[pid]/cgroup file.
+			// Note that cgroup hierarchies cannot be unmounted unless they are empty, so all of
+			// those processes will list their path in that hierarchy as "/".
+			// In this case, there is no existing path to that (empty) hierarchy, and it can
+			// safely be ignored.
+			continue
+		}
 		if err != nil {
 			return errorPath(err)
 		}

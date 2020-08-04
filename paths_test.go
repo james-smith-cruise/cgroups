@@ -141,3 +141,69 @@ func TestSystemd240(t *testing.T) {
 		t.Fatalf("expected error %q but received %q", ErrControllerNotActive, err)
 	}
 }
+
+func TestValidUnmountedCgroupHierarchy(t *testing.T) {
+	if isUnified {
+		t.Skipf("requires the system to be running in legacy mode")
+	}
+	const data = `9:name=previously-unmounted-hierarchy:/
+	8:net_cls:/
+	7:memory:/system.slice/docker.service
+	6:freezer:/
+	5:blkio:/system.slice/docker.service
+	4:devices:/system.slice/docker.service
+	3:cpuset:/
+	2:cpu,cpuacct:/system.slice/docker.service
+	1:name=systemd:/system.slice/docker.service
+	0::/system.slice/docker.service`
+	r := strings.NewReader(data)
+	paths, err := parseCgroupFromReader(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// when a previously unmounted cgroup hierarchy exists in
+	// /proc/[pid]/cgroup, existingPath should still succeed, and the returned
+	// Path func should still provide useful data.
+	path := existingPath(paths, "")
+	_, err = path("memory")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This hierarchy should be understood to be inactive.
+	_, err = path("name=previously-unmounted-hierarchy")
+	if err != ErrControllerNotActive {
+		t.Fatalf("expected error %q but received %q", ErrControllerNotActive, err)
+	}
+}
+
+func TestMountpointNotFound(t *testing.T) {
+	if isUnified {
+		t.Skipf("requires the system to be running in legacy mode")
+	}
+	const data = `9:name=unknown-hierarchy:/nonroot.slice/docker.service
+	8:net_cls:/
+	7:memory:/system.slice/docker.service
+	6:freezer:/
+	5:blkio:/system.slice/docker.service
+	4:devices:/system.slice/docker.service
+	3:cpuset:/
+	2:cpu,cpuacct:/system.slice/docker.service
+	1:name=systemd:/system.slice/docker.service
+	0::/system.slice/docker.service`
+	r := strings.NewReader(data)
+	paths, err := parseCgroupFromReader(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// If this process is in a non-root cgroup of a hierarchy that cannot
+	// be found, this is a real problem.
+	path := existingPath(paths, "")
+	_, err = path("memory")
+
+	if err != ErrNoCgroupMountDestination {
+		t.Fatal("expected error %q, got %q", ErrNoCgroupMountDestination)
+	}
+}
